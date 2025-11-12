@@ -21,6 +21,7 @@ import imp
 import optparse
 import os
 import sys
+import json
 from tempfile import mkdtemp
 from textwrap import dedent
 
@@ -138,6 +139,67 @@ def generate_sidebar(sidebar_path):
     return new_sidebar
 
 
+# Returns dict representation of JSON schema with main recipe properties
+def create_basic_schema():
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "AutoPkg Recipe Schema",
+        "type": "object",
+        "additionalProperties": True,
+        "definitions": {
+            "basic-processor": {
+                "type": "object",
+                "properties": {
+                    "Processor": {
+                        "type": "string",
+                        "description": "The name of the processor to execute.",
+                    },
+                    "Arguments": {
+                        "type": "object",
+                        "description": "Arguments to pass to the processor.",
+                        "additionalProperties": True,
+                    },
+                },
+                "required": ["Processor"],
+                "additionalProperties": False,
+            },
+        },
+        "properties": {
+            '$schema': {
+                "type": "string",
+                "description": "The schema URL.",
+            },
+            "Description": {
+                "type": "string",
+                "description": "A description of the recipe.",
+            },
+            "Identifier": {
+                "type": "string",
+                "description": "A unique identifier for the recipe.",
+            },
+            "MinimumVersion": {
+                "type": "string",
+                "description": "The minimum AutoPkg version required to run this recipe.",
+            },
+            "ParentRecipe": {
+                "type": "string",
+                "description": "The identifier of the parent recipe, if any.",
+            },
+            "Input": {
+                "type": "object",
+                "description": "Input variables for the recipe.",
+                "additionalProperties": True,
+            },
+            "Process": {
+                "type": "array",
+                "description": "The list of processors to be executed in order.",
+                "items": {
+                    "anyOf": [],
+                },
+            },
+        },
+    }
+
 def main(_):
     """Do it all"""
     usage = dedent(
@@ -195,6 +257,8 @@ def main(_):
     print()
     print()
 
+    processors_schema = [{'$ref': '#/definitions/basic-processor'}]
+
     # Generate markdown pages for each processor attributes
     for processor_name in sorted(processor_names(), key=lambda s: s.lower()):
         if processor_name in EXPERIMENTAL_PROCS:
@@ -220,6 +284,35 @@ def main(_):
         except AttributeError:
             output_vars = {}
 
+        # Generate JSON schema entry with processor specific information and all inputs
+        args_schema = {}
+        for var_name, var_info in list(input_vars.items()):
+            var_schema = {"type": "string"}
+            if "Description" in var_info:
+                var_schema["description"] = var_info["Description"]
+            if "Required" in var_info:
+                var_schema["required"] = var_info["Required"]
+            args_schema[var_name] = var_schema
+
+        processors_schema.append({
+            "type": "object",
+            "properties": {
+                "Processor": {
+                    "type": "string",
+                    "enum": [processor_name],
+                    "description": description,
+                },
+                "Arguments": {
+                    "type": "object",
+                    "description": f"Arguments to pass to the {processor_name} processor.",
+                    "properties": args_schema,
+                    "additionalProperties": True,
+                },
+            },
+            "required": ["Processor"],
+            "additionalProperties": False,
+        })
+
         filename = f"Processor-{processor_name}.md"
         pathname = os.path.join(output_dir, filename)
         output = f"# {escape(processor_name)}\n"
@@ -235,6 +328,10 @@ def main(_):
         output += generate_markdown(output_vars)
         output += "\n"
         writefile(output, pathname)
+
+    json_schema = create_basic_schema()
+    json_schema["properties"]["Process"]["items"]["anyOf"] = processors_schema
+    writefile(json.dumps(json_schema, indent=4), os.path.join(output_dir, "schema.json"))
 
     # Merge in the new stuff!
     # - Scrape through the current _Sidebar.md, look for where the existing
