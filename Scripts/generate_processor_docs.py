@@ -288,10 +288,8 @@ def main(_):
         args_schema = {}
         for var_name, var_info in list(input_vars.items()):
             var_schema = {"type": "string"}
-            if "Description" in var_info:
-                var_schema["description"] = var_info["Description"]
-            if "Required" in var_info:
-                var_schema["required"] = var_info["Required"]
+            if "description" in var_info:
+                var_schema["description"] = var_info["description"]
             args_schema[var_name] = var_schema
 
         processors_schema.append({
